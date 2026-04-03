@@ -1,0 +1,3 @@
+#!/bin/sh
+export NODE_OPTIONS="${NODE_OPTIONS:-} -r /tmp/matrix/bin/_set_title.js"
+exec /tmp/matrix/bin/agent-runner "$@"
