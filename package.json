@@ -1,0 +1,26 @@
+{
+  "name": "mmagent",
+  "version": "1.0.0",
+  "description": "MiniMax AI Agent Runner - A powerful Node.js-based agent execution framework",
+  "main": "bin/agent-runner",
+  "bin": {
+    "agent-runner": "./bin/agent-runner"
+  },
+  "scripts": {
+    "start": "node bin/agent-runner",
+    "test": "echo \"No tests specified\""
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "minimax",
+    "runner",
+    "automation"
+  ],
+  "author": "MiniMax",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
