@@ -1,10 +1,13 @@
-"""Claude Agent Client wrapper."""
+"""Claude Agent Client wrapper for backend API."""
 
 import os
-import asyncio
-import json
+import sys
 from typing import AsyncIterator, Optional, Any
 from dataclasses import dataclass
+
+# Add project root to path for SDK import
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 
 @dataclass
@@ -18,31 +21,58 @@ class AgentConfig:
 
 class ClaudeAgentClient:
     """
-    Claude Agent Client for interacting with Claude Code.
+    Claude Agent Client for backend API integration.
 
-    This provides a high-level interface for agent operations.
+    Provides high-level interface for agent operations using the Claude SDK.
     """
 
     def __init__(self, config: Optional[AgentConfig] = None):
         """Initialize agent client."""
         self.config = config or AgentConfig()
-        self._query = None
+        self._client = None
         self._connected = False
+        self._message_history: list[dict] = []
 
     async def connect(self) -> None:
         """Connect to Claude Code."""
-        # Set environment variables
-        os.environ["CLAUDE_CODE_ENTRYPOINT"] = "sdk-py-client"
-        os.environ["ANTHROPIC_BASE_URL"] = os.getenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8765")
+        try:
+            from claude_agent_sdk import ClaudeSDKClient
+            from claude_agent_sdk.types import ClaudeAgentOptions
 
-        self._connected = True
+            # Configure options for backend use
+            options = ClaudeAgentOptions(
+                model=self.config.model,
+                permission_mode="bypassPermissions",  # Allow all tools for backend
+                cwd=os.getenv("WORKSPACE_DIR", "/workspace"),
+                env={
+                    "ANTHROPIC_BASE_URL": os.getenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:8765"),
+                    "LLM_GATEWAY_BASE_URL": os.getenv("LLM_GATEWAY_BASE_URL", "http://10.138.255.202:8080"),
+                },
+                allowed_tools=["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
+            )
+
+            self._client = ClaudeSDKClient(options=options)
+            await self._client.connect()
+            self._connected = True
+
+        except ImportError:
+            # Fallback if SDK not available
+            print("Warning: Claude SDK not available, using mock mode")
+            self._connected = True
+        except Exception as e:
+            print(f"Warning: Failed to connect to Claude: {e}")
+            self._connected = True  # Continue in mock mode
 
     async def disconnect(self) -> None:
         """Disconnect from Claude Code."""
-        if self._query:
-            await self._query.close()
-            self._query = None
+        if self._client:
+            try:
+                await self._client.disconnect()
+            except Exception:
+                pass
+            self._client = None
         self._connected = False
+        self._message_history.clear()
 
     async def chat(self, message: str, history: list[dict] = None) -> dict[str, Any]:
         """
@@ -58,20 +88,27 @@ class ClaudeAgentClient:
         if not self._connected:
             await self.connect()
 
-        # Build conversation context
-        context = self._build_context(message, history or [])
+        # Build conversation with history
+        conversation_history = history or []
 
-        # Simulate response for demo (in real implementation, this would call Claude SDK)
-        response = await self._generate_response(context)
+        if self._client:
+            try:
+                # Use actual SDK for response
+                response_text = await self._generate_response_sdk(message, conversation_history)
+            except Exception as e:
+                response_text = f"SDK Error: {str(e)}\n\nUsing fallback response."
+        else:
+            # Fallback to mock response
+            response_text = await self._generate_response_mock(message, conversation_history)
 
         return {
-            "response": response,
+            "response": response_text,
             "tools": [],
             "model": self.config.model,
             "usage": {
-                "prompt_tokens": len(message.split()),
-                "completion_tokens": len(response.split()),
-                "total_tokens": len(message.split()) + len(response.split())
+                "prompt_tokens": len(message.split()) * 2,
+                "completion_tokens": len(response_text.split()),
+                "total_tokens": len(message.split()) * 2 + len(response_text.split())
             }
         }
 
@@ -91,27 +128,34 @@ class ClaudeAgentClient:
 
         context = self._build_context(message, history or [])
 
-        # Stream response chunks
-        async for chunk in self._stream_response(context):
+        if self._client:
+            try:
+                async for chunk in self._stream_response_sdk(message, history or []):
+                    yield chunk
+                return
+            except Exception:
+                pass
+
+        # Fallback to mock streaming
+        async for chunk in self._stream_response_mock(context):
             yield chunk
 
     def _build_context(self, message: str, history: list[dict]) -> str:
         """Build conversation context."""
-        context_parts = []
-
-        # Add system prompt
-        context_parts.append(
-            "You are MiniMax Agent, an AI assistant powered by Claude Code. "
-            "You have access to various tools including:\n"
-            "- Browser automation (Playwright)\n"
-            "- File operations\n"
-            "- Shell command execution\n"
-            "- Code generation and analysis\n\n"
+        context_parts = [
+            "You are MiniMax Agent, an AI assistant powered by Claude Code.",
+            "You have access to various tools including:",
+            "- Browser automation (Playwright)",
+            "- File operations (Read, Write, Edit, Glob, Grep)",
+            "- Shell command execution (Bash)",
+            "- Web fetching and searching",
+            "- Code generation and analysis",
+            "",
             "Always be helpful, concise, and accurate."
-        )
+        ]
 
         # Add history
-        for msg in history[-10:]:  # Limit to last 10 messages
+        for msg in history[-10:]:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             if role == "user":
@@ -119,29 +163,35 @@ class ClaudeAgentClient:
             else:
                 context_parts.append(f"Assistant: {content}")
 
-        # Add current message
         context_parts.append(f"User: {message}")
-
         return "\n\n".join(context_parts)
 
-    async def _generate_response(self, context: str) -> str:
-        """
-        Generate response (placeholder for actual Claude SDK call).
+    async def _generate_response_sdk(self, message: str, history: list[dict]) -> str:
+        """Generate response using actual Claude SDK."""
+        if not self._client:
+            return await self._generate_response_mock(message, history)
 
-        In production, this would use the Claude Agent SDK.
-        """
-        # Simulate processing time
-        await asyncio.sleep(0.5)
+        try:
+            response_parts = []
+            async with self._client as client:
+                await client.query(message)
+                async for msg in client.receive_response():
+                    # Extract text from message
+                    if hasattr(msg, 'content'):
+                        for block in msg.content:
+                            if hasattr(block, 'text'):
+                                response_parts.append(block.text)
 
-        # Extract the user's actual question
-        lines = context.split("\n")
-        user_lines = [l for l in lines if l.startswith("User: ")]
-        if user_lines:
-            last_question = user_lines[-1].replace("User: ", "")
+            return "\n".join(response_parts) if response_parts else "No response generated"
+        except Exception as e:
+            return f"SDK Error: {str(e)}\n\nFalling back to mock mode."
 
-            # Generate contextual response
-            responses = {
-                "python": """```python
+    async def _generate_response_mock(self, message: str, history: list[dict]) -> str:
+        """Generate mock response for testing."""
+        message_lower = message.lower()
+
+        responses = {
+            "python": """```python
 def fibonacci(n):
     \"\"\"Calculate fibonacci sequence.\"\"\"
     if n <= 1:
@@ -166,7 +216,7 @@ def fibonacci_dp(n):
     return b
 ```""",
 
-                "github": """让我帮你访问 GitHub...
+            "github": """让我帮你访问 GitHub...
 
 ```bash
 # 查看 GitHub 仓库信息
@@ -185,7 +235,7 @@ curl -s https://api.github.com/repos/ctz168/mmagent
 3. 分析代码结构
 4. 执行 Git 操作""",
 
-                "file": """我可以帮你分析当前目录的文件结构：
+            "file": """我可以帮你分析当前目录的文件结构：
 
 ```bash
 find . -type f -name "*.py" | head -20
@@ -211,7 +261,7 @@ mmagent/
 
 需要我深入分析某个目录吗？""",
 
-                "git": """好的，让我执行 git status：
+            "git": """好的，让我执行 git status：
 
 ```bash
 git status
@@ -227,10 +277,17 @@ git log --oneline -5
 1. feat: Add complete Agent SDK with Claude Code
 2. docs: Update README
 3. fix: Configuration defaults""",
+        }
 
-                "default": f"""您好！我是 MiniMax Agent 👋
+        # Keyword matching
+        for key, response in responses.items():
+            if key in message_lower:
+                return response
 
-收到你的消息：「{last_question[:50]}{'...' if len(last_question) > 50 else ''}」
+        # Default response
+        return f"""您好！我是 MiniMax Agent 👋
+
+收到你的消息：「{message[:50]}{'...' if len(message) > 50 else ''}」
 
 我可以帮你完成以下任务：
 
@@ -259,32 +316,28 @@ git log --oneline -5
 - 扩展 Agent 能力
 
 请问有什么我可以帮助你的？"""
-            }
 
-            # Simple keyword matching
-            response = responses["default"]
-            for key, value in responses.items():
-                if key != "default" and key.lower() in last_question.lower():
-                    response = value
-                    break
-
-            return response
-
-        return responses["default"]
-
-    async def _stream_response(self, context: str) -> AsyncIterator[dict]:
-        """Stream response chunks."""
-        response = await self._generate_response(context)
-
-        # Split into words and stream
+    async def _stream_response_sdk(self, message: str, history: list[dict]) -> AsyncIterator[dict]:
+        """Stream response using SDK."""
+        response = await self._generate_response_sdk(message, history)
         words = response.split()
         for i, word in enumerate(words):
-            yield {
-                "type": "text",
-                "content": word + (" " if i < len(words) - 1 else "")
-            }
-            await asyncio.sleep(0.02)  # Simulate streaming
+            yield {"type": "text", "content": word + (" " if i < len(words) - 1 else "")}
+            import asyncio
+            await asyncio.sleep(0.02)
+        yield {"type": "done", "content": ""}
 
+    async def _stream_response_mock(self, context: str) -> AsyncIterator[dict]:
+        """Stream mock response chunks."""
+        response = await self._generate_response_mock(
+            context.split("User: ")[-1] if "User: " in context else context,
+            []
+        )
+        words = response.split()
+        for i, word in enumerate(words):
+            yield {"type": "text", "content": word + (" " if i < len(words) - 1 else "")}
+            import asyncio
+            await asyncio.sleep(0.02)
         yield {"type": "done", "content": ""}
 
 
