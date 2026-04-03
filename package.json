@@ -1,26 +1,54 @@
 {
   "name": "mmagent",
   "version": "1.0.0",
-  "description": "MiniMax AI Agent Runner - A powerful Node.js-based agent execution framework",
-  "main": "bin/agent-runner",
+  "description": "MiniMax Agent SDK - Python and Node.js AI Agent Framework powered by Claude Code",
+  "main": "bin/agent-runner.js",
   "bin": {
-    "agent-runner": "./bin/agent-runner"
+    "mmagent": "./cli/mmagent.js"
   },
   "scripts": {
-    "start": "node bin/agent-runner",
-    "test": "echo \"No tests specified\""
+    "start": "node cli/mmagent.js",
+    "test": "python -m pytest",
+    "dev": "python examples/basic_usage.py",
+    "examples": "ls examples/"
   },
   "keywords": [
     "ai",
     "agent",
     "minimax",
-    "runner",
-    "automation"
+    "claude",
+    "claude-code",
+    "mcp",
+    "automation",
+    "llm",
+    "openai"
   ],
   "author": "MiniMax",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "python": ">=3.12.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.0.33",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "playwright": "^1.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "optionalDependencies": {
+    "playwright-chromium": "^1.52.0"
+  },
+  "peerDependencies": {
+    "python": ">=3.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ctz168/mmagent"
+  },
+  "bugs": {
+    "url": "https://github.com/ctz168/mmagent/issues"
+  },
+  "homepage": "https://github.com/ctz168/mmagent#readme"
 }
