@@ -3,27 +3,17 @@
 import time
 from typing import AsyncIterator
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
 from .schemas import (
     ChatRequest, ChatResponse, HealthResponse, ConfigResponse,
     StreamChunk
 )
-from ..agent.client import get_agent_client, close_agent_client
-from ..config import settings
+from agent.client import get_agent_client, close_agent_client
+from config import settings
 
 # Create router
 router = APIRouter()
-
-# Add CORS middleware
-router.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Startup time for uptime calculation
 _start_time = time.time()
